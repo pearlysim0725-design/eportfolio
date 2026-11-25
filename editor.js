@@ -8,6 +8,16 @@
 
   var body = document.body;
   var dirty = false;
+  var host = null; /* set when the page is hosted on Claude and can save itself */
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("artifact").then(function (ns) {
+      host = ns || null;
+      if (host) {
+        bar.querySelector("[data-act=publish]").hidden = false;
+        bar.querySelector("p").innerHTML = '<strong>Editing mode.</strong> Click any text to change it, click a photo or dashed box to replace it, and use Remove to delete an item. When you are done, click Publish changes and the live page updates straight away.';
+      }
+    }, function () { host = null; });
+  }
   body.classList.add("editing");
   document.querySelectorAll(".reveal").forEach(function (el) { el.classList.add("in"); });
 
@@ -145,7 +155,8 @@
   bar.className = "edit-toolbar";
   bar.innerHTML =
     '<p><strong>Editing mode.</strong> Click any text to change it, click a photo or dashed box to replace it, and use Remove to delete an item. When you are done, save the page and upload it to GitHub in place of index.html.</p>' +
-    '<button type="button" class="primary" data-act="download">Save page</button>' +
+    '<button type="button" class="primary" data-act="publish" hidden>Publish changes</button>' +
+    '<button type="button" data-act="download">Save page</button>' +
     '<button type="button" data-act="copy">Copy page code</button>' +
     '<button type="button" data-act="exit">Exit</button>' +
     '<span class="edit-status" role="status" aria-live="polite"></span>';
@@ -180,6 +191,20 @@
     return "<!DOCTYPE html>\n" + root.outerHTML;
   }
 
+  function fromSource(done) {
+    var clean = new DOMParser().parseFromString(cleanHTML(), "text/html");
+    fetch("index.html", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error("fetch"); return r.text(); })
+      .then(function (src) {
+        var start = src.indexOf('<main id="main">');
+        var end = src.search(/<script src="(js\/)?main\.js"/);
+        var main = clean.querySelector("main"), foot = clean.querySelector("footer.contact"), lb = clean.querySelector(".lightbox");
+        if (start < 0 || end < 0 || !main || !foot || !lb) throw new Error("shape");
+        done(src.slice(0, start) + main.outerHTML + "\n\n" + foot.outerHTML + "\n\n" + lb.outerHTML + "\n\n" + src.slice(end));
+      })
+      .catch(function () { done(cleanHTML()); });
+  }
+
   function showCode(html) {
     var wrap = document.createElement("div");
     wrap.className = "edit-code";
@@ -193,8 +218,26 @@
   bar.addEventListener("click", function (e) {
     var act = e.target.getAttribute && e.target.getAttribute("data-act");
     if (!act) return;
+    if (act === "publish") {
+      if (!host) { setStatus("Publishing is only available on the page hosted on Claude. Use Save page instead."); return; }
+      e.target.disabled = true;
+      setStatus("Publishing your changes...");
+      fromSource(function (html) {
+        host.publish(html).then(function () {
+          dirty = false;
+          setStatus("Published. The page will reload with your changes. Add #edit to the address again to keep editing.");
+        }, function (err) {
+          e.target.disabled = false;
+          var msg = (err && (err.code || err.message)) || "";
+          if (String(msg).indexOf("conflict") !== -1) setStatus("The page was changed elsewhere and has reloaded. Please make your edit again.");
+          else if (/not_granted|not_writer/.test(String(msg))) setStatus("Only the owner of this page can publish changes.");
+          else setStatus("The changes could not be published. Please try again, or use Save page.");
+        });
+      });
+      return;
+    }
     if (act === "download") {
-      var html = cleanHTML();
+      fromSource(function (html) {
       try {
         var a = document.createElement("a");
         a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
@@ -205,15 +248,17 @@
       } catch (err) {
         showCode(html);
       }
+      });
     }
     if (act === "copy") {
-      var code = cleanHTML();
+      fromSource(function (code) {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(code).then(function () {
           dirty = false;
           setStatus("Page code copied. Paste it into index.html on GitHub and commit.");
         }, function () { showCode(code); });
       } else { showCode(code); }
+      });
     }
     if (act === "exit") {
       if (dirty) {
