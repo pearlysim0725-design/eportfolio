@@ -126,7 +126,7 @@
   }
 
   document.addEventListener("click", function (e) {
-    if (e.target.closest(".rm-btn")) return;
+    if (e.target.closest(".rm-btn, .add-art")) return;
     var hit = e.target.closest(".frame, .award-img, .portrait-frame, .artefact-slot");
     if (!hit) return;
     e.preventDefault();
@@ -150,6 +150,29 @@
     });
   });
 
+  /* ---------- 3b. Add more artefacts to any section ---------- */
+  document.querySelectorAll(".artefact-grid, .showcase-grid").forEach(function (grid) {
+    var add = document.createElement("button");
+    add.type = "button"; add.className = "add-art"; add.textContent = "+ Add another artefact";
+    add.setAttribute("contenteditable", "false");
+    add.addEventListener("click", function (e) {
+      e.preventDefault(); e.stopPropagation();
+      var slot = document.createElement("div");
+      slot.className = "artefact-slot";
+      slot.textContent = "[ARTEFACT: New artefact — to be inserted by student]";
+      if (grid.classList.contains("showcase-grid")) {
+        var item = document.createElement("div");
+        item.className = "item"; item.setAttribute("data-cat", add.getAttribute("data-cat") || "");
+        item.appendChild(slot); grid.insertBefore(item, add); addRemove(item);
+      } else {
+        grid.insertBefore(slot, add); addRemove(slot);
+      }
+      dirty = true;
+      target = slot; picker.value = ""; picker.click();
+    });
+    grid.appendChild(add);
+  });
+
   /* ---------- 4. Toolbar ---------- */
   var bar = document.createElement("div");
   bar.className = "edit-toolbar";
@@ -167,7 +190,7 @@
   /* ---------- 5. Build a clean copy of the page ---------- */
   function cleanHTML() {
     var root = document.documentElement.cloneNode(true);
-    root.querySelectorAll(".edit-toolbar, .rm-btn, .edit-file, .edit-code").forEach(function (n) { n.remove(); });
+    root.querySelectorAll(".edit-toolbar, .rm-btn, .edit-file, .edit-code, .add-art").forEach(function (n) { n.remove(); });
     root.querySelectorAll("[contenteditable]").forEach(function (n) { n.removeAttribute("contenteditable"); n.removeAttribute("spellcheck"); });
     root.querySelectorAll("[aria-current]").forEach(function (n) { n.removeAttribute("aria-current"); });
     ["in", "editing", "scrolled", "active", "open", "rm-host"].forEach(function (c) {
